@@ -1,5 +1,5 @@
 scheduler:
-  interval_minutes: 5
+  interval_minutes: 5  # 调度间隔分钟数
   batch_size: 100
 
 worker:
