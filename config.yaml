@@ -1,28 +1,28 @@
 scheduler:
-  interval_minutes: 5  # 调度间隔分钟数
-  batch_size: 100
+  interval_minutes: 1
+  batch_size: 10
 
 worker:
-  concurrency: 4
-  asr_provider: "faster-whisper"  # 测试用离线方案
+  concurrency: 2
 
 crawler_db:
-  host: "localhost"
+  host: localhost
   port: 3306
-  user: "root"
-  password: "123456"
-  database: "media_crawler_pro"
+  user: root
+  password: '123456'
+  database: media_crawler_pro
+
+result_db:
+  host: localhost
+  port: 3306
+  user: root
+  password: '123456'
+  database: media_crawler_pro
 
 redis:
-  host: "localhost"
+  host: localhost
   port: 6379
 
 faster_whisper:
-  model_size: "base"  # tiny->base，准确率提升
-  device: "cpu"
-
-aliyun_asr:
-  app_key: ""
-  access_key: ""
-  secret_key: ""
-  region: "cn-shanghai"
+  model_size: base
+  device: cpu
