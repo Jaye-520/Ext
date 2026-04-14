@@ -1,10 +1,10 @@
 """数据库连接池管理模块"""
 
 import aiomysql
-from typing import Optional
+from typing import Optional, Dict
 from ..config import config
 
-_pool: Optional[aiomysql.Pool] = None
+_pools: Dict[str, aiomysql.Pool] = {}
 
 
 async def get_pool(db_key: str = "result_db") -> aiomysql.Pool:
@@ -17,10 +17,9 @@ async def get_pool(db_key: str = "result_db") -> aiomysql.Pool:
     Returns:
         aiomysql连接池实例
     """
-    global _pool
-    if _pool is None:
+    if db_key not in _pools:
         db_config = getattr(config, db_key)
-        _pool = await aiomysql.create_pool(
+        _pools[db_key] = await aiomysql.create_pool(
             host=db_config.host,
             port=db_config.port,
             user=db_config.user,
@@ -31,21 +30,24 @@ async def get_pool(db_key: str = "result_db") -> aiomysql.Pool:
             maxsize=20,
             cursorclass=aiomysql.DictCursor,
         )
-    return _pool
+    return _pools[db_key]
 
 
 async def close_pool():
-    """关闭连接池"""
-    global _pool
-    if _pool:
-        _pool.close()
-        await _pool.wait_closed()
-        _pool = None
+    """关闭所有连接池"""
+    global _pools
+    for key, pool in _pools.items():
+        pool.close()
+        await pool.wait_closed()
+    _pools = {}
 
 
 def get_pool_sync(db_key: str = "result_db"):
     """
     获取同步数据库连接 (用于Celery worker)
+
+    注意: Celery worker 是多进程的，每个进程需要独立的连接。
+    此函数每次调用都创建新连接，由调用方负责关闭。
 
     Args:
         db_key: 配置中的数据库键名

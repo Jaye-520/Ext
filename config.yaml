@@ -6,18 +6,18 @@ worker:
   concurrency: 2
 
 crawler_db:
-  host: localhost
+  host: 10.17.4.106
   port: 3306
   user: root
   password: '123456'
-  database: media_crawler_pro
+  database: ruoyi-vue-pro
 
 result_db:
-  host: localhost
+  host: 10.17.4.106
   port: 3306
   user: root
   password: '123456'
-  database: media_crawler_pro
+  database: ruoyi-vue-pro
 
 redis:
   host: localhost

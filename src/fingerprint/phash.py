@@ -10,6 +10,7 @@ pHash视频指纹模块
 
 import imagehash
 import cv2
+import hashlib
 import httpx
 from PIL import Image
 from pathlib import Path
@@ -21,16 +22,16 @@ HEADERS = {
     "Referer": "https://www.douyin.com/",
 }
 
-# 非视频的Content-Type列表
+# 纯音频Content-Type列表（确定没有视频的）
+# 注意: audio/mp4 不在此列表，因为抖音很多视频返回此类型，实际包含视频流
 AUDIO_CONTENT_TYPES = {
     "audio/mpeg",
     "audio/mp3",
-    "audio/mp4",
     "audio/m4a",
     "audio/x-m4a",
     "audio/wav",
     "audio/ogg",
-    "application/octet-stream",
+    # audio/mp4 可能是视频，需要下载后检测
 }
 
 
@@ -48,7 +49,7 @@ class VideoFingerprint:
 
     def compute_phash_sync(self, video_url: str) -> Optional[str]:
         """
-        计算视频的pHash指纹
+        计算视频的pHash指纹（从URL下载）
 
         Args:
             video_url: 视频下载URL
@@ -60,16 +61,43 @@ class VideoFingerprint:
         if not self._is_video_url(video_url):
             return None
 
-        video_path = self.temp_dir / "video" / f"{hash(video_url)}.mp4"
+        video_path = self.temp_dir / "video" / f"{hashlib.md5(video_url.encode()).hexdigest()[:12]}.mp4"
         video_path.parent.mkdir(exist_ok=True)
 
         try:
             with httpx.Client(timeout=30, follow_redirects=True) as client:
                 response = client.get(video_url, headers=HEADERS)
                 response.raise_for_status()
+                
+                # 检查内容大小
+                if len(response.content) < 1024:
+                    return None
+                
                 with open(video_path, "wb") as f:
                     f.write(response.content)
 
+            # 通过文件头检测是否为纯音频
+            if not self._is_video_file(str(video_path)):
+                return None
+
+            return self.compute_phash_from_file(str(video_path))
+        except Exception:
+            return None
+        finally:
+            if video_path.exists():
+                video_path.unlink()
+
+    def compute_phash_from_file(self, video_path: str) -> Optional[str]:
+        """
+        计算视频的pHash指纹（从本地文件）
+
+        Args:
+            video_path: 视频文件路径
+
+        Returns:
+            64位pHash十六进制字符串，失败返回None
+        """
+        try:
             frame = self._extract_frame(video_path)
             if frame is None:
                 return None
@@ -78,30 +106,66 @@ class VideoFingerprint:
             return str(imagehash.phash(pil_image))
         except Exception:
             return None
-        finally:
-            if video_path.exists():
-                video_path.unlink()
 
     def _is_video_url(self, url: str) -> bool:
         """
         检查URL是否可能返回视频内容
 
-        使用HEAD请求检查Content-Type
+        使用HEAD请求检查Content-Type和状态码
+        返回True表示应该尝试下载，False表示确定不是视频
         """
         try:
             with httpx.Client(timeout=10, follow_redirects=True) as client:
                 response = client.head(url, headers=HEADERS)
+                
+                # URL过期或无效
+                if response.status_code == 404:
+                    return False
+                if response.status_code >= 400:
+                    return False
+                    
                 content_type = response.headers.get("content-type", "").lower()
-                # 如果是音频类型，直接拒绝
+                # 如果是纯音频类型，直接拒绝
                 if content_type in AUDIO_CONTENT_TYPES:
                     return False
-                # 如果包含video关键字，接受
-                if "video" in content_type:
-                    return True
-                # 未知类型仍然尝试下载（可能是重定向后的URL）
+                # 其他类型（包括audio/mp4）都尝试下载，由后续步骤检测
                 return True
         except Exception:
             # 如果检查失败，仍然尝试下载
+            return True
+
+    @staticmethod
+    def _is_video_file(file_path: str) -> bool:
+        """
+        通过文件头检测是否为视频文件（而非纯音频）
+
+        Returns:
+            True 是视频文件，False 是纯音频或其他
+        """
+        try:
+            with open(file_path, 'rb') as f:
+                header = f.read(32)
+            
+            # 检查MP4/M4A文件类型
+            if header[4:8] == b'ftyp':
+                # ftyp后面是品牌标识
+                brand = header[8:12]
+                # M4A 是纯音频
+                if brand in {b'M4A ', b'M4B ', b'M4P '}:
+                    return False
+                # M4V, mp42, isom, avc1 等通常是视频
+                return True
+            
+            # 其他视频格式签名
+            video_signatures = {
+                b'\x00\x00\x00\x14ftyp': 'mp4',
+                b'\x00\x00\x00\x1cftyp': 'mp4',
+                b'\x00\x00\x00 ftyp': 'mp4',
+            }
+            
+            # 默认假设是视频（让后续处理决定）
+            return True
+        except Exception:
             return True
 
     def _extract_frame(self, video_path: str) -> Optional[Image.Image]:

@@ -335,7 +335,8 @@ start_services() {
     log_info "启动中..."
     
     # 后台启动 worker
-    uv run celery -A src.main worker --loglevel=info --concurrency=2 > logs/worker.log 2>&1 &
+    mkdir -p logs
+    uv run python -m celery -A src.worker worker --loglevel=info --concurrency=2 > logs/worker.log 2>&1 &
     WORKER_PID=$!
     
     # 等待 worker 启动
