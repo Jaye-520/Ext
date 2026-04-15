@@ -1,0 +1,7 @@
+pytest>=7.0.0
+opencv-python>=4.8.0
+imagehash>=4.3.1
+Pillow>=10.0.0
+pyyaml>=6.0
+aiomysql>=0.2.0
+redis>=4.6.0
