@@ -44,6 +44,10 @@ class Worker:
         self.transcode_pool = ThreadPoolExecutor(max_workers=concurrency.transcode)
         self.asr_sem = asyncio.Semaphore(concurrency.asr)
 
+    def close(self):
+        self.transcode_pool.shutdown(wait=True)
+        logger.info("worker_closed")
+
     async def run(self):
         logger.info("worker_started")
         backoff = 1
@@ -51,6 +55,7 @@ class Worker:
         while True:
             try:
                 task = await self.redis.brpoplpush("task_queue", "processing_queue", timeout=5)
+                logger.debug("brpoplpush_result", task_type=type(task).__name__, task_repr=repr(task)[:200])
 
                 if task is None:
                     await asyncio.sleep(min(30, backoff))
@@ -61,15 +66,19 @@ class Worker:
                 await self._process_task(task)
 
             except Exception as e:
-                logger.error("worker_loop_error", error=str(e))
+                logger.error("worker_loop_error", error=str(e), exc_info=True)
 
     async def _process_task(self, task: dict):
+        if not isinstance(task, dict):
+            logger.warning("task_type_mismatch", task_type=type(task).__name__, task_repr=repr(task)[:200])
+            await self._ack_task(task)
+            return
         video_id = task["video_id"]
         platform = task["platform"]
         url = task.get("url", "")
         retry_count = task.get("retry_count", 0)
 
-        set_trace_id(f"{platform}-{video_id[:8]}")
+        set_trace_id(f"{platform}-{str(video_id)[:8]}")
 
         acquired = await self.storage.try_acquire(video_id, platform)
         if not acquired:
@@ -80,7 +89,7 @@ class Worker:
         try:
             t0 = time.monotonic()
 
-            with self.download_sem:
+            async with self.download_sem:
                 t_download = time.monotonic()
                 video_path = await self.downloader.download(url, platform)
                 download_time_ms = int((time.monotonic() - t_download) * 1000)
@@ -97,7 +106,7 @@ class Worker:
             loop = asyncio.get_event_loop()
             audio_data = await loop.run_in_executor(
                 self.transcode_pool,
-                lambda: asyncio.run(self.audio_extractor.extract(video_path))
+                lambda: self.audio_extractor.extract_sync(video_path)
             )
             transcode_time_ms = int((time.monotonic() - t_transcode) * 1000)
 
@@ -123,8 +132,11 @@ class Worker:
             logger.error("task_failed", video_id=video_id, platform=platform, error=str(e), retry=retry_count)
             await self._handle_failure(task, e)
 
-    async def _ack_task(self, task: dict):
-        await self.redis.lrem("processing_queue", 1, json.dumps(task))
+    async def _ack_task(self, task):
+        if isinstance(task, dict):
+            await self.redis.lrem("processing_queue", 1, task)
+        else:
+            await self.redis.lrem("processing_queue", 1, task)
 
     async def _handle_failure(self, task: dict, error: Exception):
         await self.redis.lrem("processing_queue", 1, json.dumps(task))

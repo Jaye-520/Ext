@@ -1302,7 +1302,7 @@ class FingerprintRepository(ABC):
     """pHash 指纹存储与查重."""
 
     @abstractmethod
-    async def save(
+    async def save_fingerprint(
         self, video_id: str, platform: str, p_hash: str
     ) -> None:
         """存储指纹（p_hash 为空时跳过）。"""
@@ -1452,7 +1452,7 @@ class SubtitleStorage(TaskStatusRepository, FingerprintRepository, SubtitleRepos
 
     # -- Convenience method used by Worker --
 
-    async def save(
+    async def save_full(
         self,
         video_id: str,
         platform: str,

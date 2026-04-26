@@ -1,0 +1,28 @@
+database:
+  host: "127.0.0.1"
+  port: 3306
+  user: "username"
+  password: "your_password_here"
+  database: "your_database_name"
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  password: null
+
+asr:
+  model_size: "small"
+  hf_token: "your_hf_token_here"
+
+concurrency:
+  download: 6
+  transcode: 4
+  asr: 2
+
+poll:
+  interval_seconds: 5
+  batch_size: 100
+
+app:
+  backpressure_threshold: 1000
+  max_retries: 3

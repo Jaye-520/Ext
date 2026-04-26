@@ -19,11 +19,13 @@ class DatabaseConfig:
 class RedisConfig:
     host: str
     port: int
+    password: Optional[str] = None
 
 
 @dataclass
 class ASRConfig:
     model_size: str = "small"
+    hf_token: Optional[str] = None
 
 
 @dataclass
@@ -55,6 +57,12 @@ class Config:
     app: AppConfig
 
 
+def _validate_database(cfg: dict) -> dict:
+    cfg = dict(cfg)
+    cfg["port"] = int(cfg.get("port", 3306))
+    return cfg
+
+
 def load_config(config_path: Optional[str] = None) -> Config:
     """加载配置文件"""
     if config_path is None:
@@ -63,8 +71,11 @@ def load_config(config_path: Optional[str] = None) -> Config:
     with open(config_path) as f:
         raw = yaml.safe_load(f)
 
+    if not raw or "database" not in raw or "redis" not in raw:
+        raise ValueError("config file must contain 'database' and 'redis' sections")
+
     return Config(
-        database=DatabaseConfig(**raw["database"]),
+        database=DatabaseConfig(**_validate_database(raw["database"])),
         redis=RedisConfig(**raw["redis"]),
         asr=ASRConfig(**raw.get("asr", {})),
         concurrency=ConcurrencyConfig(**raw.get("concurrency", {})),

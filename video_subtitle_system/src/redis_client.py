@@ -15,11 +15,14 @@ class RedisClient:
         self.client: Optional[redis.Redis] = None
 
     async def connect(self):
-        self.client = redis.Redis(
+        kwargs = dict(
             host=self.config.host,
             port=self.config.port,
             decode_responses=True,
         )
+        if self.config.password:
+            kwargs["password"] = self.config.password
+        self.client = redis.Redis(**kwargs)
         await self.client.ping()
         logger.info("redis_connected", host=self.config.host, port=self.config.port)
 

@@ -1,4 +1,5 @@
 """Producer：轮询数据库，拉取任务，推入Redis队列"""
+import asyncio
 import json
 
 from .db import Database
@@ -27,7 +28,6 @@ class Producer:
         self._running = False
 
     async def start(self):
-        import asyncio
         self._running = True
         logger.info("producer_started", interval=self.config.interval_seconds)
         while self._running:
@@ -43,6 +43,7 @@ class Producer:
 
     async def poll(self):
         cursor = await self.cursor_mgr.get_cursor()
+        logger.debug("producer_polling", bilibili_cursor=cursor.bilibili_last_id, douyin_cursor=cursor.douyin_last_id)
 
         queue_len = await self.redis.llen("task_queue")
         if queue_len > self.backpressure_threshold:
@@ -50,19 +51,27 @@ class Producer:
             return
 
         bilibili_tasks = await self.db.fetch_all(
-            """SELECT id as video_id, 'bilibili' as platform, video_url as url
-               FROM bilibili_video
-               WHERE id > %s
-               ORDER BY id
+            """SELECT b.id as video_id, 'bilibili' as platform, b.video_url as url
+               FROM bilibili_video b
+               WHERE b.id > %s
+                 AND NOT EXISTS (
+                     SELECT 1 FROM task_status ts
+                     WHERE ts.video_id = b.id AND ts.platform = 'bilibili' AND ts.status = 'SUCCESS'
+                 )
+               ORDER BY b.id
                LIMIT %s""",
             (cursor.bilibili_last_id, self.config.batch_size // 2)
         )
 
         douyin_tasks = await self.db.fetch_all(
-            """SELECT id as video_id, 'douyin' as platform, video_download_url as url
-               FROM douyin_aweme
-               WHERE id > %s
-               ORDER BY id
+            """SELECT d.id as video_id, 'douyin' as platform, d.video_download_url as url
+               FROM douyin_aweme d
+               WHERE d.id > %s
+                 AND NOT EXISTS (
+                     SELECT 1 FROM task_status ts
+                     WHERE ts.video_id = d.id AND ts.platform = 'douyin' AND ts.status = 'SUCCESS'
+                 )
+               ORDER BY d.id
                LIMIT %s""",
             (cursor.douyin_last_id, self.config.batch_size // 2)
         )
@@ -70,13 +79,13 @@ class Producer:
         total = 0
 
         for task in bilibili_tasks:
-            await self.redis.lpush("task_queue", json.dumps(task))
             await self.cursor_mgr.update_bilibili_cursor(task["video_id"])
+            await self.redis.lpush("task_queue", json.dumps(task))
             total += 1
 
         for task in douyin_tasks:
-            await self.redis.lpush("task_queue", json.dumps(task))
             await self.cursor_mgr.update_douyin_cursor(task["video_id"])
+            await self.redis.lpush("task_queue", json.dumps(task))
             total += 1
 
         if total > 0:

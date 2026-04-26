@@ -42,12 +42,12 @@ async def main():
     downloader = VideoDownloader()
     audio_extractor = AudioExtractor()
     fingerprint = VideoFingerprint(db)
-    asr_engine = ASREngine(model_size=config.asr.model_size)
-
-    asr_engine.load_model()
+    asr_engine = ASREngine(model_size=config.asr.model_size, hf_token=config.asr.hf_token)
 
     await db.connect()
     await redis.connect()
+
+    await asr_engine.load_model_async()
 
     await recover_crashed_tasks(db, redis)
 
@@ -91,7 +91,13 @@ async def main():
     producer_task.cancel()
     worker_task.cancel()
 
+    try:
+        await asyncio.gather(producer_task, worker_task)
+    except asyncio.CancelledError:
+        pass
+
     await downloader.close()
+    worker.close()
     await redis.close()
     await db.close()
 

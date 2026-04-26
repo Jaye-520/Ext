@@ -1,5 +1,7 @@
 """FFmpeg 音频提取器"""
 import asyncio
+import subprocess
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -10,24 +12,35 @@ logger = get_logger(__name__)
 
 class AudioExtractor:
     async def extract(self, video_path: Path) -> bytes:
-        wav_path = Path(f"/tmp/{uuid4()}.wav")
+        """Async version — runs in a thread to avoid blocking the event loop."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._extract_impl, video_path)
+
+    def extract_sync(self, video_path: Path) -> bytes:
+        """Synchronous version — uses subprocess.run, suitable for ThreadPoolExecutor."""
+        return self._extract_impl(video_path)
+
+    def _extract_impl(self, video_path: Path) -> bytes:
+        wav_path = Path(tempfile.gettempdir()) / f"{uuid4()}.wav"
         video_path = Path(video_path)
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "ffmpeg", "-i", str(video_path),
-                "-ar", "16000",
-                "-ac", "1",
-                "-f", "wav",
-                "-y",
-                str(wav_path),
-                stderr=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.DEVNULL,
+            proc = subprocess.run(
+                [
+                    "ffmpeg", "-i", str(video_path),
+                    "-ar", "16000",
+                    "-ac", "1",
+                    "-f", "wav",
+                    "-y",
+                    str(wav_path),
+                ],
+                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                timeout=120,
             )
-            _, stderr = await proc.communicate()
 
             if proc.returncode != 0:
-                error_msg = stderr.decode(errors="ignore")[-200:]
+                error_msg = proc.stderr.decode(errors="ignore")[-200:]
                 raise RuntimeError(f"FFmpeg failed: {error_msg}")
 
             audio_data = wav_path.read_bytes()

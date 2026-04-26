@@ -2,6 +2,7 @@
 import asyncio
 from pathlib import Path
 from typing import Optional
+import tempfile
 from uuid import uuid4
 
 import httpx
@@ -9,6 +10,8 @@ import httpx
 from .logger import get_logger
 
 logger = get_logger(__name__)
+
+MAX_FILE_SIZE = 500 * 1024 * 1024  # 500 MB
 
 
 class VideoDownloader:
@@ -25,7 +28,7 @@ class VideoDownloader:
             await self._http_client.aclose()
 
     async def download(self, url: str, platform: str) -> Path:
-        tmp_path = Path(f"/tmp/{uuid4()}.mp4")
+        tmp_path = Path(tempfile.gettempdir()) / f"{uuid4()}.mp4"
         try:
             if platform == "douyin":
                 await self._stream_to_file(url, str(tmp_path))
@@ -41,8 +44,12 @@ class VideoDownloader:
         client = await self._get_client()
         async with client.stream("GET", url, follow_redirects=True) as resp:
             resp.raise_for_status()
+            downloaded = 0
             with open(tmp_path, "wb") as f:
                 async for chunk in resp.aiter_bytes(chunk_size=8192):
+                    downloaded += len(chunk)
+                    if downloaded > MAX_FILE_SIZE:
+                        raise RuntimeError(f"File too large: {downloaded} bytes exceeds limit of {MAX_FILE_SIZE}")
                     f.write(chunk)
 
     async def _dash_download(self, url: str, tmp_path: str):
@@ -50,6 +57,7 @@ class VideoDownloader:
             "yt-dlp",
             "-o", tmp_path,
             "--merge-output-format", "mp4",
+            "--max-filesize", f"{MAX_FILE_SIZE // (1024*1024)}M",
             "--socket-timeout", "60",
             url,
             stderr=asyncio.subprocess.PIPE,

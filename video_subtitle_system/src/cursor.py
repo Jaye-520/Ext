@@ -19,15 +19,17 @@ class CursorManager:
 
     async def get_cursor(self) -> Cursor:
         row = await self.db.fetch_one("SELECT bilibili_last_id, douyin_last_id FROM sync_cursor WHERE id = 1")
-        if row is None:
-            await self.db.execute(
-                "INSERT INTO sync_cursor (id, bilibili_last_id, douyin_last_id) VALUES (1, 0, 0)"
+        if row is not None:
+            return Cursor(
+                bilibili_last_id=row["bilibili_last_id"],
+                douyin_last_id=row["douyin_last_id"],
             )
-            return Cursor(bilibili_last_id=0, douyin_last_id=0)
-        return Cursor(
-            bilibili_last_id=row["bilibili_last_id"],
-            douyin_last_id=row["douyin_last_id"],
+        # Initialize cursor row if not exists. Use INSERT IGNORE to avoid race condition
+        # when multiple instances start simultaneously.
+        await self.db.execute(
+            "INSERT IGNORE INTO sync_cursor (id, bilibili_last_id, douyin_last_id) VALUES (1, 0, 0)"
         )
+        return Cursor(bilibili_last_id=0, douyin_last_id=0)
 
     async def update_bilibili_cursor(self, last_id: int):
         await self.db.execute(

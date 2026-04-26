@@ -1,5 +1,6 @@
 """结构化日志模块"""
 import uuid
+import logging
 import structlog
 from contextvars import ContextVar
 from typing import Optional
@@ -19,10 +20,15 @@ def set_trace_id(tid: str):
     trace_id_var.set(tid)
 
 
+def _add_trace_id(logger, method_name, event_dict):
+    event_dict["trace_id"] = get_trace_id()
+    return event_dict
+
 def configure_logging(log_level: str = "INFO"):
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
+            _add_trace_id,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
@@ -30,7 +36,7 @@ def configure_logging(log_level: str = "INFO"):
             structlog.processors.JSONRenderer(),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(structlog.stdlib, log_level.upper(), structlog.stdlib.INFO)
+            getattr(logging, log_level.upper(), logging.INFO)
         ),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
@@ -39,4 +45,4 @@ def configure_logging(log_level: str = "INFO"):
 
 
 def get_logger(name: str = __name__):
-    return structlog.get_logger(name).bind(trace_id=get_trace_id())
+    return structlog.get_logger(name)

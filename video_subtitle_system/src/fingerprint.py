@@ -22,6 +22,9 @@ class VideoFingerprint:
         try:
             fps = cap.get(cv2.CAP_PROP_FPS)
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            if fps <= 0 or total_frames <= 0:
+                logger.warning("phash_skipped", reason="invalid_video_metadata", fps=fps, total_frames=total_frames, video_path=str(video_path))
+                return ""
 
             timestamps = [1, 3, 5]
             hashes = []
@@ -37,12 +40,13 @@ class VideoFingerprint:
                         hashes.append(imagehash.phash(img))
 
             if not hashes:
-                raise ValueError(f"No frames extracted from {video_path}")
+                logger.warning("phash_skipped", reason="no_frames_extracted", video_path=str(video_path))
+                return ""
 
-            merged = hashes[0]
+            merged = hashes[0].hash
             for h in hashes[1:]:
-                merged = merged & h
-            result = str(merged)
+                merged = merged & h.hash
+            result = str(imagehash.ImageHash(merged))
             logger.info("phash_computed", video_path=str(video_path), phash=result)
             return result
 
@@ -51,11 +55,15 @@ class VideoFingerprint:
 
     @staticmethod
     def hamming_distance(hash1: str, hash2: str) -> int:
+        if not hash1 or not hash2:
+            return float('inf')
         return sum(c1 != c2 for c1, c2 in zip(hash1, hash2))
 
     async def is_duplicate(self, p_hash: str) -> bool:
+        if not p_hash:
+            return False
         fingerprints = await self.db.fetch_all(
-            "SELECT p_hash FROM dy_fingerprint ORDER BY id DESC LIMIT 10000"
+            "SELECT p_hash FROM fingerprint WHERE created_at > DATE_SUB(NOW(), INTERVAL 7 DAY) ORDER BY id DESC LIMIT 1000"
         )
         for fp in fingerprints:
             if self.hamming_distance(p_hash, fp["p_hash"]) <= 5:

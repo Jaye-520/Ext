@@ -1,5 +1,5 @@
 -- 视频指纹表（pHash 去重）
-CREATE TABLE IF NOT EXISTS dy_fingerprint (
+CREATE TABLE IF NOT EXISTS fingerprint (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     video_id VARCHAR(64) NOT NULL COMMENT '原始视频ID',
     platform ENUM('bilibili', 'douyin') NOT NULL COMMENT '平台',
@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS dy_fingerprint (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 字幕分段表
-CREATE TABLE IF NOT EXISTS dy_subtitle_segment (
+CREATE TABLE IF NOT EXISTS subtitle_segment (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     video_id VARCHAR(64) NOT NULL COMMENT '原始视频ID',
     platform ENUM('bilibili', 'douyin') NOT NULL COMMENT '平台',
@@ -22,6 +22,19 @@ CREATE TABLE IF NOT EXISTS dy_subtitle_segment (
     UNIQUE KEY uk_video_start (video_id, platform, start_time),
     INDEX idx_video_id (video_id),
     INDEX idx_video_start (video_id, start_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 字幕表（全量文本）
+CREATE TABLE IF NOT EXISTS subtitle (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    video_id VARCHAR(64) NOT NULL COMMENT '原始视频ID',
+    platform ENUM('bilibili', 'douyin') NOT NULL COMMENT '平台',
+    full_text TEXT NOT NULL COMMENT '完整字幕文本',
+    confidence_avg FLOAT DEFAULT NULL COMMENT '平均置信度(0-1)',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_video_platform (video_id, platform),
+    INDEX idx_video_id (video_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 任务状态表（方案B：不触碰原表）
